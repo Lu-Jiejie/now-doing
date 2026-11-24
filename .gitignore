@@ -1,0 +1,14 @@
+# 本地实测脚本与凭证，绝不入库
+.secrets/
+.env
+.env.*
+*.local
+
+# 依赖与构建产物
+node_modules/
+dist/
+target/
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
