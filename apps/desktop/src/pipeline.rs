@@ -36,7 +36,12 @@ impl Snapshot {
     /// debounce into a one-hertz upload loop.
     pub fn fingerprint(&self) -> String {
         let focus = match &self.focus {
-            Some(f) => format!("{}|{}", f.app, f.category),
+            Some(f) => format!(
+                "{}|{}|{}",
+                f.app,
+                f.category,
+                crate::protocol::names_key(&f.names)
+            ),
             None => "-".to_string(),
         };
         let media = match &self.media {
@@ -88,6 +93,15 @@ impl<'a> Pipeline<'a> {
         if status == Status::Idle && self.privacy.hide_focus_when_idle {
             focus = None;
         }
+        // Focusing the player you are listening to says nothing the now-playing
+        // block does not already say, and the reader draws them as separate cards.
+        if media.is_some()
+            && focus
+                .as_ref()
+                .is_some_and(|f| f.category.eq_ignore_ascii_case("media"))
+        {
+            focus = None;
+        }
 
         Snapshot {
             status,
@@ -99,10 +113,20 @@ impl<'a> Pipeline<'a> {
     fn focus(&self, raw: &RawState) -> Option<Focus> {
         let process = raw.process.as_deref()?;
 
-        let (app, category) = match self.match_rule(process) {
-            Some(rule) => (rule.id(), rule.category.trim().to_string()),
+        let (app, category, names, icon) = match self.match_rule(process) {
+            Some(rule) => (
+                rule.id(),
+                rule.category.trim().to_string(),
+                clean_names(&rule.names),
+                clean_icon(rule.icon.as_deref()),
+            ),
             None => match self.privacy.unknown_app.as_str() {
-                "generic" => (GENERIC_ID.to_string(), GENERIC_ID.to_string()),
+                "generic" => (
+                    GENERIC_ID.to_string(),
+                    GENERIC_ID.to_string(),
+                    Default::default(),
+                    None,
+                ),
                 // `hide` and any unknown value both fall through to hiding.
                 _ => return None,
             },
@@ -112,6 +136,8 @@ impl<'a> Pipeline<'a> {
         Some(Focus {
             app: sanitize_id(&app),
             category: category.chars().take(32).collect(),
+            names,
+            icon,
             since: raw.focus_since.min(now),
             seconds: (now - raw.focus_since).max(0) as u64,
         })
@@ -126,13 +152,12 @@ impl<'a> Pipeline<'a> {
 
     /// The rule that owns whatever is playing, matched on the player's public id.
     ///
-    /// Three spellings have to be tried: the media watcher reports a sanitised
-    /// executable stem (`cloudmusic`), the rule is usually written as
-    /// `cloudmusic.exe`, and once an alias is set `id()` returns the alias instead.
+    /// Two spellings have to be tried: the media watcher reports a sanitised
+    /// executable stem (`cloudmusic`), while the rule is usually written as
+    /// `cloudmusic.exe`.
     fn media_rule(&self, app: &str) -> Option<&Rule> {
         self.privacy.rules.iter().find(|rule| {
             rule_matches(&rule.match_process, app)
-                || sanitize_id(&rule.id()).eq_ignore_ascii_case(app)
                 || public_id(&rule.match_process).eq_ignore_ascii_case(app)
         })
     }
@@ -145,7 +170,8 @@ impl<'a> Pipeline<'a> {
         // Publishing a track is a separate promise from publishing "this app is
         // focused": only a rule that says `category: "media"` may do it. Without
         // this gate a browser with a rule would leak whatever video it plays.
-        if !self.media_rule(&media.app)?.allows_media() {
+        let rule = self.media_rule(&media.app)?;
+        if !rule.allows_media() {
             return None;
         }
         // A player can still open a file whose name the user would not want on a
@@ -165,6 +191,7 @@ impl<'a> Pipeline<'a> {
             title: clean_text(&media.title, MAX_TEXT),
             artist: clean_text(&media.artist, MAX_TEXT),
             app: clean_text(&media.app, 32),
+            icon: clean_icon(rule.icon.as_deref()),
         })
     }
 }
@@ -211,10 +238,54 @@ pub(crate) fn public_id(process: &str) -> String {
     }
 }
 
+/// Display names are free text from the config, so they get the same care as a
+/// track title: no control characters, trimmed, blanks dropped, length capped,
+/// and only the first few languages kept. A name is a label, not a paragraph.
+pub fn clean_names(
+    names: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    const MAX_LANGS: usize = 4;
+    const MAX_NAME: usize = 64;
+    names
+        .iter()
+        .filter_map(|(lang, value)| {
+            let lang: String = lang
+                .trim()
+                .to_ascii_lowercase()
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+                .collect();
+            let value: String = value.chars().filter(|c| !c.is_control()).collect();
+            let value = value.trim();
+            if lang.is_empty() || value.is_empty() {
+                return None;
+            }
+            Some((lang, value.chars().take(MAX_NAME).collect()))
+        })
+        .take(MAX_LANGS)
+        .collect()
+}
+
+/// Only a plain http(s) link is published: anything else is either a local path
+/// or a scheme the browser would refuse to load from a public page.
+pub fn clean_icon(icon: Option<&str>) -> Option<String> {
+    const MAX_ICON: usize = 512;
+    let icon = icon?.trim();
+    let lower = icon.to_ascii_lowercase();
+    if icon.is_empty()
+        || icon.len() > MAX_ICON
+        || icon.chars().any(char::is_control)
+        || !(lower.starts_with("https://") || lower.starts_with("http://"))
+    {
+        return None;
+    }
+    Some(icon.to_string())
+}
+
 /// The published form of a public id: readable, stable, and safe to put in a URL.
 ///
-/// Unlike `public_id` this keeps non-ASCII letters, because an alias is written by
-/// the user on purpose — a Chinese alias used to collapse into `other`.
+/// Unlike `public_id` this keeps non-ASCII letters: a display name may be written
+/// in any script, and folding it to ASCII used to collapse names into `other`.
 pub(crate) fn sanitize_id(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.trim().chars() {
@@ -299,8 +370,9 @@ mod tests {
     fn rule(process: &str, category: &str) -> Rule {
         Rule {
             match_process: process.into(),
-            alias: None,
             category: category.into(),
+            names: Default::default(),
+            icon: None,
         }
     }
 
@@ -353,22 +425,109 @@ mod tests {
     }
 
     #[test]
-    fn an_alias_renames_the_published_id() {
+    fn a_rule_may_carry_an_icon_link() {
         let mut r = rule("Code.exe", "dev");
-        r.alias = Some("coding".into());
+        r.icon = Some("https://cdn.simpleicons.org/visualstudiocode".into());
         let p = privacy(vec![r], "hide");
         let pipe = Pipeline::new(&p, false);
-        assert_eq!(pipe.evaluate(&raw("Code.exe")).focus.unwrap().app, "coding");
+        assert_eq!(
+            pipe.evaluate(&raw("Code.exe"))
+                .focus
+                .unwrap()
+                .icon
+                .as_deref(),
+            Some("https://cdn.simpleicons.org/visualstudiocode")
+        );
     }
 
     #[test]
-    fn an_alias_may_be_non_ascii() {
-        // The alias is the user's own public id; mangling it into `other` was a bug.
-        let mut r = rule("Code.exe", "dev");
-        r.alias = Some("写代码".into());
-        let p = privacy(vec![r], "hide");
-        let pipe = Pipeline::new(&p, false);
-        assert_eq!(pipe.evaluate(&raw("Code.exe")).focus.unwrap().app, "写代码");
+    fn an_icon_that_is_not_a_link_is_dropped() {
+        assert!(clean_icon(Some("C:\\Windows\\code.ico")).is_none());
+        assert!(clean_icon(Some("javascript:alert(1)")).is_none());
+        assert!(clean_icon(Some("   ")).is_none());
+        assert!(clean_icon(Some(&format!("https://x.test/{}", "a".repeat(600)))).is_none());
+        assert_eq!(
+            clean_icon(Some(" https://x.test/a.png ")).as_deref(),
+            Some("https://x.test/a.png")
+        );
+    }
+
+    #[test]
+    fn a_playing_player_is_not_a_focus() {
+        // The reader draws "now playing" as its own card, so a focus line naming
+        // the player itself would only repeat it.
+        let p = privacy(vec![rule("cloudmusic.exe", "media")], "hide");
+        let out = Pipeline::new(&p, false).evaluate(&playing("cloudmusic"));
+        assert!(out.media.is_some());
+        assert!(out.focus.is_none());
+
+        // Nothing playing: focusing the player is real information again.
+        let quiet = Pipeline::new(&p, false).evaluate(&raw("cloudmusic.exe"));
+        assert_eq!(quiet.focus.map(|f| f.app), Some("cloudmusic".to_string()));
+    }
+
+    #[test]
+    fn a_rule_may_carry_a_display_name_per_language() {
+        let mut names = std::collections::BTreeMap::new();
+        names.insert("zh".to_string(), "绝区零".to_string());
+        names.insert("en".to_string(), "Zenless Zone Zero".to_string());
+        let privacy = privacy(
+            vec![Rule {
+                match_process: "ZenlessZoneZero.exe".into(),
+                category: "game".into(),
+                names,
+                icon: None,
+            }],
+            "hide",
+        );
+        let out = Pipeline::new(&privacy, false).evaluate(&raw("ZenlessZoneZero.exe"));
+        let focus = out.focus.expect("the rule matches");
+        assert_eq!(focus.app, "zenlesszonezero");
+        assert_eq!(focus.category, "game");
+        assert_eq!(focus.names.get("zh").map(String::as_str), Some("绝区零"));
+        assert_eq!(
+            focus.names.get("en").map(String::as_str),
+            Some("Zenless Zone Zero")
+        );
+    }
+
+    #[test]
+    fn a_renamed_window_is_a_change_worth_uploading() {
+        let mut names = std::collections::BTreeMap::new();
+        names.insert("zh".to_string(), "绝区零".to_string());
+        let one = privacy(
+            vec![Rule {
+                match_process: "ZenlessZoneZero.exe".into(),
+                category: "game".into(),
+                names: names.clone(),
+                icon: None,
+            }],
+            "hide",
+        );
+        names.insert("zh".to_string(), "绝区零 2".to_string());
+        let two = privacy(
+            vec![Rule {
+                match_process: "ZenlessZoneZero.exe".into(),
+                category: "game".into(),
+                names,
+                icon: None,
+            }],
+            "hide",
+        );
+        let a = Pipeline::new(&one, false).evaluate(&raw("ZenlessZoneZero.exe"));
+        let b = Pipeline::new(&two, false).evaluate(&raw("ZenlessZoneZero.exe"));
+        assert_ne!(a.fingerprint(), b.fingerprint());
+    }
+
+    #[test]
+    fn names_are_cleaned_and_capped() {
+        let mut names = std::collections::BTreeMap::new();
+        names.insert(" ZH ".to_string(), "  绝区零\u{0}\n".to_string());
+        names.insert(String::new(), "ignored".to_string());
+        names.insert("en".to_string(), "   ".to_string());
+        let cleaned = clean_names(&names);
+        assert_eq!(cleaned.len(), 1);
+        assert_eq!(cleaned.get("zh").map(String::as_str), Some("绝区零"));
     }
 
     #[test]
@@ -490,10 +649,9 @@ mod tests {
     }
 
     #[test]
-    fn an_alias_never_hides_the_track() {
-        // Regression: matching only on `rule.id()` meant that adding an alias
-        // silently dropped every track, because the media watcher reports the
-        // player by its executable stem and the id had become the alias.
+    fn a_track_is_matched_by_the_executable_stem() {
+        // Regression: the media watcher reports the player by its executable stem
+        // (`cloudmusic`), while the rule is written as `cloudmusic.exe`.
         let p = PrivacyConfig {
             unknown_app: "hide".into(),
             idle_after_secs: 120,
@@ -501,12 +659,35 @@ mod tests {
             hide_focus_when_idle: true,
             rules: vec![Rule {
                 match_process: "cloudmusic.exe".into(),
-                alias: Some("music".into()),
                 category: "media".into(),
+                names: Default::default(),
+                icon: None,
             }],
         };
         let out = Pipeline::new(&p, false).evaluate(&playing("cloudmusic"));
         assert_eq!(out.media.map(|m| m.title), Some("Song".to_string()));
+    }
+
+    #[test]
+    fn the_media_block_carries_the_players_icon() {
+        let mut r = rule("cloudmusic.exe", "media");
+        r.icon = Some("https://cdn.simpleicons.org/neteasecloudmusic/D43C3C".into());
+        let p = privacy(vec![r], "hide");
+        let out = Pipeline::new(&p, false).evaluate(&playing("cloudmusic"));
+        assert_eq!(
+            out.media.unwrap().icon.as_deref(),
+            Some("https://cdn.simpleicons.org/neteasecloudmusic/D43C3C")
+        );
+    }
+
+    #[test]
+    fn a_browser_rule_still_cannot_publish_a_track() {
+        // Only `category: "media"` opts in; an icon does not change that.
+        let mut r = rule("chrome.exe", "browse");
+        r.icon = Some("https://cdn.simpleicons.org/googlechrome".into());
+        let p = privacy(vec![r], "hide");
+        let out = Pipeline::new(&p, false).evaluate(&playing("chrome"));
+        assert!(out.media.is_none());
     }
 
     #[test]

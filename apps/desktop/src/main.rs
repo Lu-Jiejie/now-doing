@@ -36,6 +36,13 @@ fn main() {
                 cli::hold_console(owned);
                 std::process::exit(code);
             }
+            "--history" => {
+                let owned = cli::open_console();
+                let code =
+                    cli::history(history_limit(&args[1..]), args.iter().any(|a| a == "--raw"));
+                cli::hold_console(owned);
+                std::process::exit(code);
+            }
             "--media" => {
                 let owned = cli::open_console();
                 let code = cli::media();
@@ -126,6 +133,16 @@ fn main() {
 
     message_loop(&state, &mut tray);
     log::info!("now-doing stopped");
+}
+
+/// How many lines `--history` should show: the first non-flag argument, capped so
+/// a stray number cannot dump the whole file.
+fn history_limit(rest: &[String]) -> usize {
+    rest.iter()
+        .filter(|arg| !arg.starts_with('-'))
+        .find_map(|arg| arg.parse::<usize>().ok())
+        .unwrap_or(20)
+        .clamp(1, 2000)
 }
 
 fn message_loop(state: &app::Shared, tray: &mut tray::Tray) {

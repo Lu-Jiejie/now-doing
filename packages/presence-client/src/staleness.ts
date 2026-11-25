@@ -22,10 +22,18 @@ export interface Presence {
 }
 
 export interface Focus {
-  /** Public id chosen by the desktop rule. Map it to your own wording. */
+  /** Stable handle derived from the executable; use it for styling, never for text. */
   app: string
   /** Free-form group from the rule, e.g. `dev`. Useful for icons or a fallback. */
   category: string
+  /**
+   * Display names supplied by the rule, keyed by language tag (`zh`, `en`).
+   * A name is a property of the window, so it travels with the snapshot; the
+   * wording around it stays here.
+   */
+  names?: Record<string, string>
+  /** Icon URL from the rule that matched, e.g. a Simple Icons link. */
+  icon?: string
   since: number
   seconds: number
 }
@@ -34,6 +42,8 @@ export interface Media {
   title: string
   artist: string
   app: string
+  /** Icon URL of the player, so the now-playing line can show its own logo. */
+  icon?: string
 }
 
 export type Verdict = 'live' | 'recent' | 'stale' | 'offline'
@@ -82,4 +92,25 @@ export function formatAge(seconds: number): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
   return `${Math.floor(seconds / 86400)} 天前`
+}
+
+/**
+ * The display name for `locale`, falling back to any language the rule supplied.
+ *
+ * Names are open-ended (there is always another game), which is why they arrive
+ * in the snapshot instead of living in a dictionary you would have to rebuild.
+ * Returns `undefined` when the rule set none, so callers keep their own wording.
+ */
+export function pickName(focus: Focus | null | undefined, locale: string): string | undefined {
+  const names = focus?.names
+  if (!names) return undefined
+  const exact = names[locale]
+  if (exact) return exact
+  const prefix = locale.split('-')[0]?.toLowerCase()
+  if (prefix) {
+    for (const [lang, value] of Object.entries(names)) {
+      if (lang === prefix || lang.startsWith(`${prefix}-`)) return value
+    }
+  }
+  return Object.values(names)[0]
 }

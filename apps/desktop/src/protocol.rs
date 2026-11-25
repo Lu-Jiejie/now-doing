@@ -62,10 +62,27 @@ pub struct Focus {
     /// Free-form tag the reader can switch on. Empty when the rule set none.
     #[serde(default)]
     pub category: String,
+    /// Display names keyed by language tag, e.g. `{"zh": "绝区零"}`. Omitted when
+    /// the rule set none, so a reader that only wants an id pays nothing.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub names: std::collections::BTreeMap<String, String>,
+    /// Icon URL from the rule that matched. Omitted when the rule sets none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// Unix seconds when this app first became focused.
     pub since: i64,
     /// Seconds elapsed in this focus session.
     pub seconds: u64,
+}
+
+/// Order-independent rendering of the display names, so that renaming a window
+/// counts as a change worth uploading while unchanged names stay silent.
+pub fn names_key(names: &std::collections::BTreeMap<String, String>) -> String {
+    names
+        .iter()
+        .map(|(lang, value)| format!("{lang}={value}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,6 +93,9 @@ pub struct Media {
     pub artist: String,
     #[serde(default)]
     pub app: String,
+    /// Icon URL of the player, from the rule that opted into publishing tracks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,11 +112,23 @@ impl Presence {
     /// second without any user-visible meaning.
     pub fn fingerprint(&self) -> String {
         let focus = match &self.focus {
-            Some(f) => format!("{}|{}", f.app, f.category),
+            Some(f) => format!(
+                "{}|{}|{}|{}",
+                f.app,
+                f.category,
+                names_key(&f.names),
+                f.icon.as_deref().unwrap_or("")
+            ),
             None => "-".into(),
         };
         let media = match &self.media {
-            Some(m) => format!("{}|{}|{}", m.title, m.artist, m.app),
+            Some(m) => format!(
+                "{}|{}|{}|{}",
+                m.title,
+                m.artist,
+                m.app,
+                m.icon.as_deref().unwrap_or("")
+            ),
             None => "-".into(),
         };
         format!("{}|{}|{}", self.status.as_str(), focus, media)
@@ -133,6 +165,8 @@ mod tests {
             focus: Some(Focus {
                 app: "coding".into(),
                 category: "work".into(),
+                names: Default::default(),
+                icon: None,
                 since: 1_699_999_000,
                 seconds: 1000,
             }),
@@ -179,6 +213,7 @@ mod tests {
             title: "Song A".into(),
             artist: "X".into(),
             app: "music".into(),
+            icon: None,
         });
         let mut b = a.clone();
         assert_eq!(a.fingerprint(), b.fingerprint());

@@ -157,25 +157,28 @@ pub struct Rule {
     /// Raw executable name, e.g. `Code.exe`. The only thing ever matched, and it
     /// never leaves the machine.
     pub match_process: String,
-    /// Public id published instead of the derived one (`Code.exe` → `code`).
-    /// Every human-readable string lives in the blog, so naming is all a rule is
-    /// for: pick an id your blog knows how to translate.
+    /// Icon URL the blog can show next to the name, e.g.
+    /// `https://cdn.simpleicons.org/neteasecloudmusic`. Only the link travels; the
+    /// image is served by whoever you point at.
     #[serde(default)]
-    pub alias: Option<String>,
+    pub icon: Option<String>,
     /// Free-form tag the blog can switch on for its own text and icon. The value
     /// `media` is special — it is the only way to let an app publish a track.
     #[serde(default)]
     pub category: String,
+    /// Display names keyed by language tag, e.g. `{"zh": "绝区零", "en": "Zenless
+    /// Zone Zero"}`. A name is a property of the window rather than a sentence, so
+    /// it travels with the sample; the wording ("playing a game") stays in the
+    /// reader. Without this every new game would mean a blog rebuild.
+    #[serde(default)]
+    pub names: std::collections::BTreeMap<String, String>,
 }
 
 impl Rule {
-    /// The id this rule publishes: the alias when one is set, otherwise the
-    /// derived public id of the executable.
+    /// The id this rule publishes, derived from the executable: renaming a window
+    /// stays one config edit instead of a second identifier to keep in sync.
     pub fn id(&self) -> String {
-        match self.alias.as_deref().map(str::trim) {
-            Some(alias) if !alias.is_empty() => alias.to_string(),
-            _ => crate::pipeline::public_id(&self.match_process),
-        }
+        crate::pipeline::public_id(&self.match_process)
     }
 
     /// True when this rule may publish what the app is playing.
@@ -456,22 +459,27 @@ mod tests {
         cfg.sink.bucket = "now-doing".into();
         cfg.privacy.rules.push(Rule {
             match_process: "Code.exe".into(),
-            alias: Some("coding".into()),
             category: "dev".into(),
+            names: Default::default(),
+            icon: Some("https://example.test/code.svg".into()),
         });
         let back = Config::from_json(&cfg.to_json()).unwrap();
         assert_eq!(back.heartbeat_secs, 120);
         assert_eq!(back.sink.bucket, "now-doing");
-        assert_eq!(back.privacy.rules[0].alias.as_deref(), Some("coding"));
-        assert_eq!(back.privacy.rules[0].id(), "coding");
+        assert_eq!(
+            back.privacy.rules[0].icon.as_deref(),
+            Some("https://example.test/code.svg")
+        );
+        assert_eq!(back.privacy.rules[0].id(), "code");
     }
 
     #[test]
-    fn a_rule_without_an_alias_uses_the_executable_stem() {
+    fn a_rule_id_is_the_executable_stem() {
         let rule = Rule {
             match_process: "Code.exe".into(),
-            alias: None,
             category: "dev".into(),
+            names: Default::default(),
+            icon: None,
         };
         assert_eq!(rule.id(), "code");
         assert!(!rule.id().contains(".exe"));
@@ -518,8 +526,9 @@ mod tests {
         cfg.min_gap_secs = 120;
         cfg.privacy.rules = vec![Rule {
             match_process: String::new(),
-            alias: None,
             category: String::new(),
+            names: Default::default(),
+            icon: None,
         }];
         let found = warnings(&cfg);
         assert!(found.iter().any(|w| w.contains("minGapSecs")));
@@ -531,8 +540,9 @@ mod tests {
         quiet.min_gap_secs = 10;
         quiet.privacy.rules = vec![Rule {
             match_process: "Code.exe".into(),
-            alias: None,
             category: "dev".into(),
+            names: Default::default(),
+            icon: None,
         }];
         assert!(!warnings(&quiet).iter().any(|w| w.contains("minGapSecs")));
     }

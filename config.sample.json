@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "paused": false,
+  "autostart": false,
+  "heartbeatSecs": 90,
+  "minGapSecs": 5,
+  "changeDebounceSecs": 3,
+  "proxy": "",
+  "deviceName": "",
+  "dryRun": false,
+  "sink": {
+    "kind": "r2",
+    "endpoint": "https://<ACCOUNT_ID>.r2.cloudflarestorage.com",
+    "bucket": "now-doing",
+    "objectKey": "presence.json",
+    "publicUrl": "https://presence.example.com/presence.json",
+    "accessKeyId": "",
+    "secretAccessKey": "",
+    "purgeToken": "",
+    "zoneId": ""
+  },
+  "privacy": {
+    "unknownApp": "hide",
+    "idleAfterSecs": 120,
+    "hideFocusWhenIdle": true,
+    "mediaBlockKeywords": [],
+    "rules": [
+      {
+        "matchProcess": "Code.exe",
+        "category": "dev",
+        "icon": "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/vscode/vscode-original.svg"
+      },
+      {
+        "matchProcess": "chrome.exe",
+        "category": "browse"
+      },
+      {
+        "matchProcess": "msedge.exe",
+        "category": "browse"
+      },
+      {
+        "matchProcess": "cloudmusic.exe",
+        "category": "media",
+        "names": {
+          "zh": "网易云音乐",
+          "en": "NetEase Cloud Music"
+        },
+        "icon": "https://cdn.simpleicons.org/neteasecloudmusic/D43C3C"
+      },
+      {
+        "matchProcess": "Spotify.exe",
+        "category": "media",
+        "icon": "https://cdn.simpleicons.org/spotify/1DB954"
+      },
+      {
+        "matchProcess": "ZenlessZoneZero.exe",
+        "category": "game",
+        "names": {
+          "zh": "绝区零",
+          "en": "Zenless Zone Zero"
+        }
+      }
+    ]
+  }
+}

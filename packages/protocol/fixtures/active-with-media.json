@@ -14,11 +14,17 @@
     "app": "code",
     "category": "dev",
     "since": 1795551100,
-    "seconds": 59
+    "seconds": 59,
+    "names": {
+      "zh": "代码编辑器",
+      "en": "Code editor"
+    },
+    "icon": "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/vscode/vscode-original.svg"
   },
   "media": {
     "title": "Merry Christmas Mr. Lawrence",
     "artist": "坂本龍一",
-    "app": "cloudmusic"
+    "app": "cloudmusic",
+    "icon": "https://cdn.simpleicons.org/neteasecloudmusic/D43C3C"
   }
 }

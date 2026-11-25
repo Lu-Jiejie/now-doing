@@ -10,7 +10,7 @@ A tiny Windows tray agent that publishes what you are doing as a public JSON fil
 
 ```
 Foreground window ──┐
-Media session ──────┼─→ privacy pipeline (allowlist / alias / keywords) ─→ fingerprint ─→ R2 ─→ Cloudflare edge ─→ your blog
+Media session ──────┼─→ privacy pipeline (allowlist / names / keywords) ─→ fingerprint ─→ R2 ─→ Cloudflare edge ─→ your blog
 Idle time ──────────┘                                                        (write on change, heartbeat otherwise)
 ```
 
@@ -80,8 +80,11 @@ Field names are **camelCase**. Every field has a default, missing fields fall ba
 | Field | Required | Meaning |
 |---|---|---|
 | `matchProcess` | yes | Executable name, e.g. `Code.exe`; a trailing `*` matches a family. **Matched locally, never published** |
-| `alias` | no | Published id replacing the derived one (`Code.exe` → `code`) |
+| `names` | no | Display names keyed by language tag, e.g. `{ "zh": "绝区零", "en": "Zenless Zone Zero" }`. Published with `focus` so a new game needs a config edit, not a blog rebuild |
+| `icon` | no | Icon URL shown next to the name, e.g. `https://cdn.simpleicons.org/neteasecloudmusic/D43C3C`. Only the link travels; the image is served by whoever you point at. Must be `http(s)://` |
 | `category` | no | Free-form tag your blog can map to wording or an icon. **`media` is special**: only apps tagged `media` may publish a track |
+
+The published id is derived from `matchProcess` (`Code.exe` → `code`), so there is no second identifier to keep in sync: renaming a window is one edit to `names`.
 
 ```jsonc
 {
@@ -100,9 +103,23 @@ Field names are **camelCase**. Every field has a default, missing fields fall ba
   "privacy": {
     "mediaBlockKeywords": ["meeting", "interview"],
     "rules": [
-      { "matchProcess": "Code.exe", "alias": "code", "category": "dev" },
+      {
+        "matchProcess": "Code.exe",
+        "category": "dev",
+        "icon": "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/vscode/vscode-original.svg"
+      },
       { "matchProcess": "chrome.exe", "category": "browse" },
-      { "matchProcess": "cloudmusic.exe", "category": "media" }
+      {
+        "matchProcess": "cloudmusic.exe",
+        "category": "media",
+        "names": { "zh": "网易云音乐", "en": "NetEase Cloud Music" },
+        "icon": "https://cdn.simpleicons.org/neteasecloudmusic/D43C3C"
+      },
+      {
+        "matchProcess": "ZenlessZoneZero.exe",
+        "category": "game",
+        "names": { "zh": "绝区零", "en": "Zenless Zone Zero" }
+      }
     ]
   }
 }
@@ -159,9 +176,13 @@ export interface Presence {
 }
 
 export interface Focus {
-  /** Public id: an alias, or derived from the executable. The real process name never appears */
+  /** Stable handle derived from the executable, for styling only — text comes from `names` */
   app: string
   category: string
+  /** Display names from the rule, keyed by language tag. Use `pickName(focus, locale)` */
+  names?: Record<string, string>
+  /** Icon URL from the rule, if any */
+  icon?: string
   /** When the current app took focus, and for how many seconds */
   since: number
   seconds: number
@@ -173,6 +194,8 @@ export interface Media {
   artist: string
   /** Public id of the player */
   app: string
+  /** Icon URL of the player, so the now-playing line can carry its own logo */
+  icon?: string
 }
 ```
 
@@ -183,7 +206,8 @@ Four deliberate omissions:
 1. **No `offline` status.** A disconnected client cannot write anything, so offline has to be inferred from `ts`.
 2. **No playback state, album or position.** The players people actually use on Windows (NetEase Cloud Music) leave those empty; reporting a frozen playhead costs writes and says nothing.
 3. **No human-readable text.** `label` and friends are gone: wording and i18n belong to the blog, the protocol only carries ids.
-4. **The track title is the only free text that ever leaves the machine**, so it needs an explicit per-app `category: "media"` opt-in. A browser having a rule does not mean you agreed to publish what it is playing.
+4. **The track title is the only free text scraped off the machine**, so it needs an explicit per-app `category: "media"` opt-in. A browser having a rule does not mean you agreed to publish what it is playing. Display `names` are an exception in the other direction: you typed them into the config yourself.
+5. **Focusing the player is not a focus line.** When the window in front belongs to the app that is playing, `focus` is `null` and only `media` is published; a blog draws those as separate cards anyway.
 
 ## 5. Using it from a blog
 
@@ -211,9 +235,9 @@ const { presence, staleness, error, refresh } = usePresence({
 // staleness: 'live' | 'recent' | 'stale' | 'offline'
 ```
 
-The package already handles the three easy mistakes: dropping out-of-order `seq`, **clock skew** (measured from the first response, so a laptop an hour fast will not declare you offline), and pausing on `document.hidden`. `examples/vue/PresenceCard.vue` plus `messages.ts` (zh/en phrase tables) are there to copy.
+The package already handles the three easy mistakes: dropping out-of-order `seq`, **clock skew** (measured from the first response, so a laptop an hour fast will not declare you offline), and pausing on `document.hidden`.
 
-Suggested mapping: `offline` → not at the computer / `paused` → not sharing right now / `idle` → away (and `focus` is usually `null` too) / otherwise look up `focus.app`, fall back to `focus.category`, and add a second line "listening to <title> — <artist>" whenever `media != null`.
+Suggested mapping: `offline` → not at the computer / `paused` → not sharing right now / `idle` → away (and `focus` is usually `null` too) / otherwise take `pickName(focus, locale)`, then look up `focus.app`, then fall back to `focus.category`, and add a second line "listening to <title> — <artist>" whenever `media != null`.
 
 Gotchas: poll every 15 s; **never add `?t=<timestamp>` cache busters** (Cloudflare's cache key includes the query string, so that bypasses the edge on every request); send a plain `GET`/`HEAD` without custom headers, which would trigger a preflight.
 
@@ -227,9 +251,12 @@ now-doing --media            every media session the system knows, plus the capt
 now-doing --seal             move the four credentials out of config.json into a DPAPI-encrypted secrets.bin
 now-doing --purge            purge the edge once, to verify purgeToken / zoneId
 now-doing --resolve <host>   compare the system resolver with the built-in fallback resolver
+now-doing --history [n]      the last n published bodies, with time, seq and status (--raw for jsonl)
 ```
 
 `--watch` and `--probe` read the foreground window title so you can write rules. The resident loop **never puts a title into `focus`**; the only exception is the caption fallback for players that register no media session (NetEase Cloud Music), which reads the window title of apps tagged `category: "media"` and extracts just the track and artist.
+
+The object store only ever holds the newest snapshot, so `--history` reads a local file instead: every upload and every dry-run write appends one line to `data/history.jsonl`. Rows that repeat the previous body are marked `~` — those are heartbeats, not changes, which is the point of looking. The file is capped at 256 KB and keeps the newest 120 lines.
 
 ## 7. Known limitations
 

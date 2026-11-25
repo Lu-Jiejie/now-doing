@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { Presence } from '../src/staleness'
-import { classify, estimateSkew, formatAge, offlineAfter } from '../src/staleness'
+import { classify, estimateSkew, formatAge, offlineAfter, pickName } from '../src/staleness'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtures = join(here, '../../../packages/protocol/fixtures')
@@ -24,6 +24,12 @@ describe('fixtures', () => {
     expect(p.focus?.app).toBe('code')
     expect(p.media?.app).toBe('cloudmusic')
     expect(p.media?.title).toBeTruthy()
+  })
+
+  it('carries icon links for the focused app and the player', () => {
+    const p = load('active-with-media.json')
+    expect(p.focus?.icon).toMatch(/^https:\/\//)
+    expect(p.media?.icon).toMatch(/^https:\/\//)
   })
 
   it('represents empty blocks as explicit null rather than a missing key', () => {
@@ -68,5 +74,28 @@ describe('formatAge', () => {
     expect(formatAge(90)).toBe('1 分钟前')
     expect(formatAge(7200)).toBe('2 小时前')
     expect(formatAge(90000)).toBe('1 天前')
+  })
+})
+
+describe('pickName', () => {
+  const base = load('active-with-media.json')
+
+  it('prefers the exact language tag', () => {
+    expect(pickName(base.focus, 'zh')).toBe('代码编辑器')
+    expect(pickName(base.focus, 'en')).toBe('Code editor')
+  })
+
+  it('falls back from a regional tag to the base language', () => {
+    expect(pickName(base.focus, 'zh-Hans')).toBe('代码编辑器')
+  })
+
+  it('falls back to whatever language the rule did supply', () => {
+    expect(pickName(base.focus, 'ja')).toBe('代码编辑器')
+  })
+
+  it('stays undefined when the rule set no names', () => {
+    const bare = { app: 'code', category: 'dev', since: 1, seconds: 2 }
+    expect(pickName(bare, 'zh')).toBeUndefined()
+    expect(pickName(null, 'zh')).toBeUndefined()
   })
 })

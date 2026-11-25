@@ -10,6 +10,7 @@ pub mod collector;
 pub mod config;
 pub mod device;
 pub mod dnsfallback;
+pub mod history;
 pub mod logger;
 pub mod pipeline;
 pub mod protocol;

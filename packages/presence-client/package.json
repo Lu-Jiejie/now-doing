@@ -1,6 +1,6 @@
 {
   "name": "@now-doing/presence-client",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Fetch and classify the now-doing presence snapshot in a Vue 3 blog.",
   "license": "MIT",
   "author": "lujiejie",

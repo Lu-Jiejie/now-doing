@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+
+      - name: Test and build
+        working-directory: apps/desktop
+        env:
+          # ring's C build overflows the default PDB debug record.
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_PROFILE_DEV_INCREMENTAL: 'false'
+        run: |
+          cargo test
+          cargo build --release
+
+      - name: Stage assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          $exe = "now-doing-$env:GITHUB_REF_NAME-windows-x64.exe"
+          Copy-Item apps/desktop/target/release/now-doing.exe "out/$exe"
+          Copy-Item config.sample.json out/config.sample.json
+          $lines = Get-ChildItem out -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          Set-Content out/sha256sums.txt -Value $lines -Encoding utf8
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/now-doing-*-windows-x64.exe
+            out/config.sample.json
+            out/sha256sums.txt
+          body: |
+            Windows x64, single executable — no installer, no runtime dependencies.
+
+            - `now-doing-*-windows-x64.exe`: put it in an ordinary folder and run it.
+              The first start creates `data\` next to the exe.
+            - `config.sample.json`: copy to `data\config.json`, then fill in the R2
+              endpoint, bucket and keys; the app refuses to edit it, so a restart is
+              what applies a change.
+            - `sha256sums.txt`: checksums for the files above.
+
+            The exe must not live in a folder carrying a `Low Mandatory Level`
+            integrity label (sandboxes, some extractors, sync clients): Windows then
+            refuses the tray icon and the process runs invisibly.

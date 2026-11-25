@@ -292,12 +292,11 @@ fn session_allowed(session: &GlobalSystemMediaTransportControlsSession, players:
         return false;
     }
     // The broker reports a sanitised stem (`cloudmusic`) while the rule is normally
-    // written as an executable (`cloudmusic.exe`) and may carry an alias, so every
-    // spelling has to be accepted or the session is silently dropped.
+    // written as an executable (`cloudmusic.exe`), so both spellings have to be
+    // accepted or the session is silently dropped.
     let player = player_name(session);
     players.iter().any(|rule| {
         rule_matches(&rule.match_process, &player)
-            || rule.id().eq_ignore_ascii_case(&player)
             || public_id(&rule.match_process).eq_ignore_ascii_case(&player)
     })
 }

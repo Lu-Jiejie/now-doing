@@ -23,7 +23,11 @@
     },
     "device": {
       "type": "object",
-      "required": ["id", "name", "os"],
+      "required": [
+        "id",
+        "name",
+        "os"
+      ],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -37,7 +41,12 @@
           "maxLength": 64,
           "description": "Display name, taken from COMPUTERNAME by default."
         },
-        "os": { "type": "string", "enum": ["windows"] }
+        "os": {
+          "type": "string",
+          "enum": [
+            "windows"
+          ]
+        }
       }
     },
     "seq": {
@@ -47,7 +56,11 @@
     },
     "status": {
       "type": "string",
-      "enum": ["active", "idle", "paused"],
+      "enum": [
+        "active",
+        "idle",
+        "paused"
+      ],
       "description": "'paused' means the user disabled reporting; it is not the same as offline. There is deliberately no 'offline' value: a client that cannot reach the network cannot write."
     },
     "ts": {
@@ -65,30 +78,60 @@
       "description": "How often the device re-writes even when nothing changes. Readers derive the offline threshold from this, typically 3x."
     },
     "focus": {
-      "description": "The focused application, or null when nothing may be published.",
+      "description": "The focused application, or null when nothing may be published: no rule matched, the machine is idle, or the focused window is the player that is currently publishing a track.",
       "oneOf": [
-        { "type": "null" },
+        {
+          "type": "null"
+        },
         {
           "type": "object",
-          "required": ["app", "category", "since", "seconds"],
+          "required": [
+            "app",
+            "category",
+            "since",
+            "seconds"
+          ],
           "additionalProperties": false,
           "properties": {
             "app": {
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Public identifier produced by a privacy rule (its alias, or the executable stem). Never a raw executable name or path. Readers map this to their own wording, so no human-readable text travels in the payload."
+              "description": "Public identifier derived from the executable stem. Readers use it as a stable handle for their own styling and never for wording: the text they print comes from names."
             },
             "category": {
               "type": "string",
               "maxLength": 32,
               "description": "Free-form group chosen by the rule author, e.g. dev / browse / chat. Readers may use it for an icon or for a fallback sentence."
             },
+            "names": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 4,
+              "propertyNames": {
+                "pattern": "^[a-z]{2,8}(-[a-z0-9]{2,8})*$"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Display names keyed by language tag, straight from the rule that matched. A name describes what the window is, and new apps appear all the time, so it travels with the snapshot; sentences stay with the reader. Omitted when the rule sets none."
+            },
+            "icon": {
+              "type": "string",
+              "maxLength": 512,
+              "pattern": "^https?://",
+              "description": "Icon URL taken verbatim from the rule that matched, so a reader can draw the window without knowing what it is. Only the link travels; whoever you point at serves the image. Omitted when the rule sets none."
+            },
             "since": {
               "type": "integer",
               "description": "Unix seconds when this app gained focus."
             },
-            "seconds": { "type": "integer", "minimum": 0 }
+            "seconds": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         }
       ]
@@ -96,18 +139,35 @@
     "media": {
       "description": "The last track seen playing, or null when nothing is playing or the player's rule is not tagged category \"media\". The track title is the only free text this protocol ever carries, so it is gated on an explicit per-app opt-in. Playback state, album and position are deliberately absent: the media broker of the players people actually use on Windows leaves those empty, and reporting a stale playhead costs writes without telling the reader anything.",
       "oneOf": [
-        { "type": "null" },
+        {
+          "type": "null"
+        },
         {
           "type": "object",
-          "required": ["title", "artist"],
+          "required": [
+            "title",
+            "artist"
+          ],
           "additionalProperties": false,
           "properties": {
-            "title": { "type": "string", "maxLength": 128 },
-            "artist": { "type": "string", "maxLength": 128 },
+            "title": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "artist": {
+              "type": "string",
+              "maxLength": 128
+            },
             "app": {
               "type": "string",
               "maxLength": 64,
               "description": "Sanitised player name, not an AUMID."
+            },
+            "icon": {
+              "type": "string",
+              "maxLength": 512,
+              "pattern": "^https?://",
+              "description": "Icon URL taken verbatim from the rule that matched, so a reader can draw the window without knowing what it is. Only the link travels; whoever you point at serves the image. Omitted when the rule sets none."
             }
           }
         }

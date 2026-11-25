@@ -246,6 +246,107 @@ pub fn probe() -> i32 {
     0
 }
 
+/// `--history`: the last few published payloads, oldest first.
+///
+/// The object store only holds the newest snapshot, so a session can only be
+/// examined afterwards if each write was kept somewhere. One line per write, with
+/// a `~` marker when the body repeated the previous one — that is a heartbeat, not
+/// a change, and telling the two apart is the whole point of reading this.
+pub fn history(limit: usize, raw: bool) -> i32 {
+    if config::ensure_data_dir().is_err() {
+        eprintln!("no writable data directory");
+        return 1;
+    }
+    let path = crate::history::path();
+    let total = crate::history::count();
+    if total == 0 {
+        println!("nothing recorded yet");
+        println!();
+        println!("{} does not exist or is empty.", path.display());
+        println!("Every upload and every dry-run write appends one line to it, so run");
+        println!("the resident agent (or --watch, or a dry run) for a while first.");
+        return 0;
+    }
+
+    println!("now-doing {} — history", env!("CARGO_PKG_VERSION"));
+    println!("file  : {}", path.display());
+    println!("lines : {total}   showing the newest {limit}");
+    println!();
+
+    if raw {
+        for line in crate::history::tail(limit) {
+            println!("{line}");
+        }
+        return 0;
+    }
+
+    let entries = crate::history::load(limit);
+    if entries.is_empty() {
+        eprintln!("the file holds no parseable payload (schema changed?)");
+        return 1;
+    }
+
+    // A fixed-width table would need locale-aware padding for CJK, so the columns
+    // are separated by two spaces and every field is already short.
+    println!("  time  Δt  seq  status  focus  media");
+    let mut previous: Option<&crate::protocol::Presence> = None;
+    for entry in &entries {
+        let delta = match previous {
+            Some(prev) => format!("+{}s", entry.ts - prev.ts),
+            None => "-".into(),
+        };
+        let repeated = previous
+            .map(|prev| prev.fingerprint() == entry.fingerprint())
+            .unwrap_or(false);
+        let marker = if repeated { "~" } else { " " };
+        let focus = match &entry.focus {
+            Some(f) => {
+                let label = display_label(f);
+                let category = if f.category.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", f.category)
+                };
+                format!("{label}{category} {}s", f.seconds)
+            }
+            None => "-".into(),
+        };
+        let media = match &entry.media {
+            Some(m) if m.artist.is_empty() => format!("♪ {}", m.title),
+            Some(m) => format!("♪ {} — {}", m.title, m.artist),
+            None => "-".into(),
+        };
+        println!(
+            "{marker} {}  {delta}  {}  {}  {focus}  {media}",
+            crate::util::rfc3339(entry.ts),
+            entry.seq,
+            entry.status.as_str(),
+        );
+        previous = Some(entry);
+    }
+    println!();
+    println!("~ marks a heartbeat: the body repeated the previous one.");
+    0
+}
+
+/// The name to show in a terminal, where there is no locale to defer to.
+///
+/// Matches what the blog does by default: Chinese first, then English, then
+/// whatever single value the rule carried, then the public id.
+fn display_label(focus: &crate::protocol::Focus) -> String {
+    for lang in ["zh", "en"] {
+        if let Some(name) = focus.names.get(lang) {
+            return name.clone();
+        }
+    }
+    focus
+        .names
+        .values()
+        .next()
+        .cloned()
+        .unwrap_or_else(|| focus.app.clone())
+}
+
 /// `--media`: what the system media broker actually reports, session by session.
 ///
 /// The collector can only publish what a player hands to Windows. When a track is
@@ -338,6 +439,7 @@ pub fn help() {
     println!("Run without arguments to stay resident in the system tray.");
     println!();
     println!("  --watch   live preview: prints every change with the exact presence.json body");
+    println!("  --history show the last published payloads, newest last (--history 50 --raw)");
     println!("  --probe   sample once and print the raw process name plus the payload");
     println!("  --media   list the media sessions Windows reports, and why one is missing");
     println!("  --resolve resolve a host exactly the way the uploader does");

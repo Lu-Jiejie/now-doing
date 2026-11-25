@@ -133,6 +133,11 @@ fn run(state: Shared, shared: SharedState) {
                     Ok(path) => log::info!("dry run: wrote {} (seq {next_seq})", path.display()),
                     Err(err) => log::warn!("dry run: cannot write the preview: {err}"),
                 }
+                // Recorded here too: a dry run is exactly when a session is worth
+                // looking at afterwards, and it costs nothing that is published.
+                if let Err(err) = crate::history::record(&body) {
+                    log::debug!("cannot append to the history: {err}");
+                }
                 seq = next_seq;
                 save_seq(seq);
                 last_fingerprint = fingerprint;
@@ -177,6 +182,9 @@ fn run(state: Shared, shared: SharedState) {
                         rt.last_error = None;
                     });
                     log::debug!("published seq {seq} (http {status})");
+                    if let Err(err) = crate::history::record(&body) {
+                        log::debug!("cannot append to the history: {err}");
+                    }
                     if let Err(err) = agent.purge(&effective) {
                         log::warn!("edge purge failed: {err}");
                     }
