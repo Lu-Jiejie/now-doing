@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "device": {
+    "id": "441af1a4ba0b2565b52fb97c0477b22b",
+    "name": "desktop",
+    "os": "windows"
+  },
+  "seq": 42,
+  "status": "active",
+  "ts": 1795551159,
+  "updatedAt": "2026-11-24T20:12:39Z",
+  "heartbeatS": 30,
+  "focus": {
+    "app": "code",
+    "category": "dev",
+    "since": 1795551100,
+    "seconds": 59
+  },
+  "media": {
+    "title": "Merry Christmas Mr. Lawrence",
+    "artist": "坂本龍一",
+    "app": "cloudmusic"
+  }
+}

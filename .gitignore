@@ -4,6 +4,9 @@
 .env.*
 *.local
 
+# 便携数据目录（exe 旁边运行时会生成）
+data/
+
 # 依赖与构建产物
 node_modules/
 dist/

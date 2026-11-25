@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "device": {
+    "id": "441af1a4ba0b2565b52fb97c0477b22b",
+    "name": "DESKTOP-JOBLFSD",
+    "os": "windows"
+  },
+  "seq": 43,
+  "status": "idle",
+  "ts": 1795551400,
+  "updatedAt": "2026-11-24T20:16:40Z",
+  "heartbeatS": 90,
+  "focus": null,
+  "media": null
+}

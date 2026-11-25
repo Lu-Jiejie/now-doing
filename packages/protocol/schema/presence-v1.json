@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Lu-Jiejie/now-doing/schema/presence-v1.json",
+  "title": "now-doing presence snapshot",
+  "description": "A short-lived current-state projection, not an activity timeline. Every write replaces the previous snapshot.",
+  "type": "object",
+  "required": [
+    "schema",
+    "device",
+    "seq",
+    "status",
+    "ts",
+    "updatedAt",
+    "heartbeatS",
+    "focus",
+    "media"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": 1,
+      "description": "Protocol version. Bumped only for breaking changes."
+    },
+    "device": {
+      "type": "object",
+      "required": ["id", "name", "os"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Random per-install identifier, not derived from hardware or user account."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Display name, taken from COMPUTERNAME by default."
+        },
+        "os": { "type": "string", "enum": ["windows"] }
+      }
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic per device. Readers must discard any snapshot whose seq is not greater than the one already displayed, because edge caches are eventually consistent across regions."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "idle", "paused"],
+      "description": "'paused' means the user disabled reporting; it is not the same as offline. There is deliberately no 'offline' value: a client that cannot reach the network cannot write."
+    },
+    "ts": {
+      "type": "integer",
+      "description": "Unix seconds on the reporting machine. Readers must correct for clock skew rather than trusting the local clock."
+    },
+    "updatedAt": {
+      "type": "string",
+      "description": "RFC 3339 rendering of ts, for humans reading the JSON directly."
+    },
+    "heartbeatS": {
+      "type": "integer",
+      "minimum": 30,
+      "maximum": 3600,
+      "description": "How often the device re-writes even when nothing changes. Readers derive the offline threshold from this, typically 3x."
+    },
+    "focus": {
+      "description": "The focused application, or null when nothing may be published.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["app", "category", "since", "seconds"],
+          "additionalProperties": false,
+          "properties": {
+            "app": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Public identifier produced by a privacy rule (its alias, or the executable stem). Never a raw executable name or path. Readers map this to their own wording, so no human-readable text travels in the payload."
+            },
+            "category": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "Free-form group chosen by the rule author, e.g. dev / browse / chat. Readers may use it for an icon or for a fallback sentence."
+            },
+            "since": {
+              "type": "integer",
+              "description": "Unix seconds when this app gained focus."
+            },
+            "seconds": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "media": {
+      "description": "The last track seen playing, or null when nothing is playing or the player's rule is not tagged category \"media\". The track title is the only free text this protocol ever carries, so it is gated on an explicit per-app opt-in. Playback state, album and position are deliberately absent: the media broker of the players people actually use on Windows leaves those empty, and reporting a stale playhead costs writes without telling the reader anything.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["title", "artist"],
+          "additionalProperties": false,
+          "properties": {
+            "title": { "type": "string", "maxLength": 128 },
+            "artist": { "type": "string", "maxLength": 128 },
+            "app": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "Sanitised player name, not an AUMID."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

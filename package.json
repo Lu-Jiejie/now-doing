@@ -1,0 +1,12 @@
+{
+  "name": "now-doing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Publish what your computer is doing right now to a static blog.",
+  "license": "MIT",
+  "author": "lujiejie",
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "typecheck": "pnpm -r --if-present typecheck"
+  }
+}
